@@ -27,6 +27,7 @@
 #include "gl-headers.h"
 #include <iomanip>
 #include <sstream>
+#include <cstring>
 
 using std::vector;
 using std::string;
@@ -409,23 +410,48 @@ GLStateEGL::getVisualConfig(GLVisualConfig& vc)
  * GLStateEGL private methods *
  *****************************/
 
+#ifdef GLMARK2_USE_X11
+#define GLMARK2_NATIVE_EGL_DISPLAY_ENUM EGL_PLATFORM_X11_KHR
+#elif  GLMARK2_USE_WAYLAND
+#define GLMARK2_NATIVE_EGL_DISPLAY_ENUM EGL_PLATFORM_WAYLAND_KHR
+#elif  GLMARK2_USE_DRM
+#define GLMARK2_NATIVE_EGL_DISPLAY_ENUM EGL_PLATFORM_GBM_KHR
+#elif  GLMARK2_USE_MIR
+#define GLMARK2_NATIVE_EGL_DISPLAY_ENUM EGL_PLATFORM_MIR_KHR
+#endif
+
 bool
 GLStateEGL::gotValidDisplay()
 {
     if (egl_display_)
         return true;
 
-    Log::debug("Using eglGetPlatformDisplayEXT !\n");
-    PFNEGLGETPLATFORMDISPLAYEXTPROC get_platform_display = NULL;
-    get_platform_display =
-        reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(
-            eglGetProcAddress("eglGetPlatformDisplayEXT"));
-
-    if (get_platform_display != nullptr) {
-        egl_display_ = get_platform_display(
-            GLMARK2_NATIVE_EGL_DISPLAY_ENUM, native_display_, NULL);
-    }
+    char const * __restrict const supported_extensions =
+        eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
     
+    if (supported_extensions
+        && strstr(supported_extensions, "EGL_EXT_platform_base")) {
+        
+        Log::debug("Using eglGetPlatformDisplayEXT !\n");
+        PFNEGLGETPLATFORMDISPLAYEXTPROC get_platform_display = NULL;
+        get_platform_display =
+            reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(
+                eglGetProcAddress("eglGetPlatformDisplayEXT"));
+
+        if (get_platform_display != nullptr) {
+            egl_display_ = get_platform_display(
+                GLMARK2_NATIVE_EGL_DISPLAY_ENUM, native_display_, NULL);
+        }
+        
+        if (!egl_display_) {
+            Log::debug("eglGetDispayPlatformEXT failed...\n");
+        }
+        
+    }
+    else {
+        Log::debug("eglGetDisplayPlatformEXT seems unsupported\n");
+    }
+
     /* Just in case get_platform_display failed... */
     if (!egl_display_)
         egl_display_ = eglGetDisplay(native_display_);
